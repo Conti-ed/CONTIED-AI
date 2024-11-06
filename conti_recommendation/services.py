@@ -16,6 +16,9 @@ from django.conf import settings
 import pickle
 from scipy.sparse import save_npz, load_npz
 import jpype
+import logging
+
+logger = logging.getLogger(__name__)
 
 # NLTK 데이터 다운로드 (필요 시)
 nltk.download('punkt', quiet=True)
@@ -363,11 +366,12 @@ def generate_gpt4o_mini_conti_description(keywords, bible_verse_range, recommend
         return "플레이리스트 설명 생성 중 오류 발생"
 
 def create_conti(songs_df, user_keywords, bible_verse_range):
-    bible_dict = load_bible('bible.txt')
-    if bible_dict is None:
-        return {"error": "Failed to load the Bible file."}
-
     try:
+        bible_dict = load_bible('bible.txt')
+        if bible_dict is None:
+            logger.error("Failed to load the Bible file.")
+            return {"error": "Internal server error."}
+
         # 1. 키워드 및 성경 구절 매칭
         matched_songs, noun_keywords, bible_text = match_songs_with_keywords(songs_df, user_keywords, bible_verse_range, bible_dict)
         print(f"Keywords used (nouns only): {', '.join(noun_keywords)}")

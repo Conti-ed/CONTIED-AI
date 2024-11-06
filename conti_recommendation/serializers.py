@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 class ContiRequestSerializer(serializers.Serializer):
-    user_keywords = serializers.ListField(
+    keywords = serializers.ListField(
         child=serializers.CharField(),
         allow_empty=False
     )
@@ -16,4 +16,6 @@ class ContiResponseSerializer(serializers.Serializer):
     title = serializers.CharField()
     description = serializers.CharField()
     songs = SongSerializer(many=True)
-    error = serializers.CharField(required=False)
+    # 필요한 경우 필드 추가
+    # createdAt = serializers.DateTimeField()
+    # id = serializers.IntegerField()

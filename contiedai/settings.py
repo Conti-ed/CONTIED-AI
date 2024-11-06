@@ -25,11 +25,11 @@ SECRET_KEY = config('SECRET_KEY', default='your-default-secret-key')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = ['*']   # 배포 시 적절히 설정
+ALLOWED_HOSTS = ['*']
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # Contied FE domain
-    # 배포 시 실제 FE domain 추가
+    "https://your-production-domain.com"    # 배포 시 실제 FE domain 추가
 ]
 
 CORS_ALLOW_CREDENTIALS = True
