@@ -1,7 +1,11 @@
-# -*- coding: utf-8 -*-
-import jpype
-import os
+# conti_recommendation/apps.py
+from django.apps import AppConfig
 
-# JVM 초기화는 services.py에서 처리하므로 여기서는 필요하지 않습니다.
+class ContiRecommendationConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'conti_recommendation'
 
-# 필요한 경우 다른 초기화 코드나 설정을 추가하십시오.
+    def ready(self):
+        from .services import initialize_jvm, initialize_services
+        initialize_jvm()
+        initialize_services()

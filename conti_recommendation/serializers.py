@@ -8,9 +8,9 @@ class ContiRequestSerializer(serializers.Serializer):
     bible_verse_range = serializers.CharField()
 
 class SongSerializer(serializers.Serializer):
-    title = serializers.CharField()
-    artist = serializers.CharField()
-    similarity = serializers.FloatField()
+    id = serializers.IntegerField()
+    # title = serializers.CharField()  # 필요 시 추가
+    # artist = serializers.CharField()  # 필요 시 추가
 
 class ContiResponseSerializer(serializers.Serializer):
     title = serializers.CharField()
