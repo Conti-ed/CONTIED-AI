@@ -5,24 +5,23 @@ from functools import lru_cache
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from gensim.models import Word2Vec
-from konlpy.tag import Okt
+from kiwipiepy import Kiwi
 import re
 import random
 import openai
-import nltk
+# import nltk
 from decouple import config
 import os
 from django.conf import settings
 import pickle
 from scipy.sparse import save_npz, load_npz
-import jpype
 import logging
 
 logger = logging.getLogger(__name__)
 
 # NLTK 데이터 다운로드 (필요 시)
-nltk.download('punkt', quiet=True)
-nltk.download('stopwords', quiet=True)
+# nltk.download('punkt', quiet=True)
+# nltk.download('stopwords', quiet=True)
 
 # 프로젝트의 BASE_DIR 설정 (Django settings.py 파일의 BASE_DIR을 사용)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -38,6 +37,8 @@ TFIDF_VECTORIZER_FILE = os.path.join(CACHE_DIR, 'tfidf_vectorizer.pkl')
 # Word2Vec 모델 경로
 WORD2VEC_MODEL_FILE = os.path.join(CACHE_DIR, 'word2vec.model')
 
+PROCESSED_LYRICS_FILE = os.path.join(CACHE_DIR, 'processed_lyrics.pkl')
+
 # OpenAI API 키 설정
 openai.api_key = config('OPENAI_API_KEY')
 
@@ -48,27 +49,7 @@ tfidf_matrix = None
 tfidf_vectorizer = None
 word2vec_model = None
 
-# JVM 초기화 함수
-def initialize_jvm():
-    if not jpype.isJVMStarted():
-        try:
-            jvm_path = jpype.getDefaultJVMPath()
-            logger.info(f"Starting JVM at: {jvm_path}")
-
-            javadir = r'C:\Projects\konlpy\java'
-            classpath = (
-                f"{javadir}{os.sep}open-korean-text-2.1.0.jar{os.pathsep}"
-                f"{javadir}{os.sep}scala-library-2.12.12.jar{os.pathsep}"
-                f"{javadir}{os.sep}scala-reflect-2.12.12.jar{os.pathsep}"
-                f"{javadir}{os.sep}scala-parser-combinators_2.12-1.1.2.jar{os.pathsep}"
-                f"{javadir}{os.sep}twitter-text-2.0.8.jar"
-            )
-
-            jpype.startJVM(jvm_path, f"-Djava.class.path={classpath}", "-Dfile.encoding=UTF-8")
-            logger.info("JVM started successfully.")
-        except Exception as e:
-            logger.exception(f"Failed to start JVM: {e}")
-            raise
+kiwi = Kiwi()
 
 def load_data(file_path='data.csv'):
     global songs_df
@@ -166,28 +147,34 @@ def get_bible_verses(start_verse, end_verse):
     verses = []
     for chapter in range(start_chapter, end_chapter + 1):
         start = start_num if chapter == start_chapter else 1
-        end = end_num if chapter == end_chapter else 1000  # 임의의 큰 숫자
+        end = end_num if chapter == end_chapter else 1000
 
         for num in range(start, end + 1):
             verse_id = f'{start_book}{chapter}:{num}'
             if verse_id in bible_dict:
                 verses.append(bible_dict[verse_id])
             else:
-                break  # 해당 장의 마지막 구절에 도달
+                break
 
     return ' '.join(verses)
 
-@lru_cache(maxsize=1000)
 def preprocess_korean_text(text, pos_filter=None):
-    okt = Okt()
-    pos_tags = okt.pos(text)
-    if pos_filter:
-        filtered_words = [word for word, pos in pos_tags if pos in pos_filter.split(',')]
-    else:
-        filtered_words = [word for word, pos in pos_tags]
-    return ' '.join(filtered_words)
+    global kiwi
+    analyzed = kiwi.analyze(text)
+    tokens = []
+    for sentence in analyzed:
+        for token, pos, _, _ in sentence[0]:
+            if pos_filter:
+                pos_filters = pos_filter.split(',')
+                if pos in pos_filters:
+                    tokens.append(token)
+            else:
+                tokens.append(token)
+    return ' '.join(tokens)
 
 def extract_keywords(text, top_n=5, pos_filter=None):
+    if pos_filter is None:
+        pos_filter = 'NNG,NNP'
     processed_text = preprocess_korean_text(text, pos_filter)
     tfidf = TfidfVectorizer()
     tfidf_matrix = tfidf.fit_transform([processed_text])
@@ -288,7 +275,7 @@ def match_songs_with_keywords(user_keywords, bible_verse_range, similarity_thres
     matched_songs = songs_df[songs_df['similarity'] > similarity_threshold].sort_values('similarity', ascending=False)
 
     # Noun 키워드 추출
-    noun_keywords = extract_keywords(' '.join(all_keywords), pos_filter='Noun')
+    noun_keywords = extract_keywords(' '.join(all_keywords), pos_filter='NNG,NNP')
 
     return matched_songs, noun_keywords, bible_text
 
@@ -433,10 +420,19 @@ def create_conti(user_keywords, bible_verse_range):
 
 def initialize_services():
     global songs_df, bible_dict, tfidf_matrix, tfidf_vectorizer, word2vec_model
-    initialize_jvm()
+
     songs_df = load_data('data.csv')
     if songs_df is not None:
-        songs_df['processed_lyrics'] = songs_df['lyrics'].apply(lambda x: preprocess_korean_text(x) if pd.notnull(x) else "")
+        if os.path.exists(PROCESSED_LYRICS_FILE):
+            logger.info("Loading cached processed lyrics...")
+            with open(PROCESSED_LYRICS_FILE, 'rb') as f:
+                songs_df['processed_lyrics'] = pickle.load(f)
+        else:
+            logger.info("Processing lyrics...")
+            songs_df['processed_lyrics'] = songs_df['lyrics'].apply(lambda x: preprocess_korean_text(x) if pd.notnull(x) else "")
+            with open(PROCESSED_LYRICS_FILE, 'wb') as f:
+                pickle.dump(songs_df['processed_lyrics'], f)
+        
         tfidf_matrix, tfidf_vectorizer = compute_and_cache_tfidf()
         word2vec_model = load_or_train_word2vec()
     bible_dict = load_bible('bible.txt')

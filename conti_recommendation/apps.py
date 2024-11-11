@@ -6,6 +6,5 @@ class ContiRecommendationConfig(AppConfig):
     name = 'conti_recommendation'
 
     def ready(self):
-        from .services import initialize_jvm, initialize_services
-        initialize_jvm()
+        from .services import initialize_services
         initialize_services()
