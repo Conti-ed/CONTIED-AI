@@ -19,10 +19,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# NLTK 데이터 다운로드 (필요 시)
-# nltk.download('punkt', quiet=True)
-# nltk.download('stopwords', quiet=True)
-
 # 프로젝트의 BASE_DIR 설정 (Django settings.py 파일의 BASE_DIR을 사용)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
