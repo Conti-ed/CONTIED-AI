@@ -9,7 +9,6 @@ from kiwipiepy import Kiwi
 import re
 import random
 import openai
-# import nltk
 from decouple import config
 import os
 from django.conf import settings
@@ -293,15 +292,13 @@ def recommend_songs(matched_songs, min_recommendations=4, max_recommendations=5)
 
 def generate_gpt4o_mini_conti_title(keywords, bible_verse_range, recommended_songs):
     prompt = f"""
-    다음 정보를 바탕으로 창의적이고 매력적인 플레이리스트 제목을 만들어주세요
+    다음 정보를 참고하여 창의적이고 매력적인 한국어 플레이리스트 제목을 작성해주세요.
 
-    키워드: {', '.join(keywords)}
-    성경 구절 범위: {bible_verse_range}
-    추천 노래: {', '.join([song['title'] for _, song in recommended_songs.iterrows()])}
+    - 키워드: {', '.join(keywords)}
+    - 성경 구절 범위: {bible_verse_range}
+    - 추천 노래: {', '.join([song['title'] for _, song in recommended_songs.iterrows()])}
 
-    제목은 한국어로 작성해 주시고, 플레이리스트의 주제와 내용을 잘 반영하되 창의적이고 흥미로운 표현을 사용해 주세요.
-    부제는 생성하지 말고, 단일 제목만 만들어주세요.
-    따옴표나 기타 부가적인 텍스트 없이 제목만 반환해주세요.
+    플레이리스트의 주제와 내용을 잘 반영하면서도 흥미롭고 기억에 남는 제목을 만들어주세요. 부제는 필요 없으며, 따옴표나 기타 부가적인 텍스트 없이 순수한 제목만 반환해주세요.
     """
 
     try:
@@ -324,22 +321,21 @@ def generate_gpt4o_mini_conti_title(keywords, bible_verse_range, recommended_son
 
 def generate_gpt4o_mini_conti_description(keywords, bible_verse_range, recommended_songs, bible_text, conti_title):
     prompt = f"""
-    다음 정보를 바탕으로 300자 이내로 플레이리스트에 대한 설명을 작성해주세요:
+    다음 정보를 참고하여 300자 이내의 한국어 플레이리스트 설명을 작성해주세요.
 
-    플레이리스트 제목: {conti_title}
-    키워드: {', '.join(keywords)}
-    성경 구절 범위: {bible_verse_range}
-    성경 구절 내용: {bible_text}
-    추천 노래: {', '.join([song['title'] for _, song in recommended_songs.iterrows()])}
+    - 플레이리스트 제목: {conti_title}
+    - 키워드: {', '.join(keywords)}
+    - 성경 구절 범위: {bible_verse_range}
+    - 성경 구절 내용: {bible_text}
+    - 추천 노래: {', '.join([song['title'] for _, song in recommended_songs.iterrows()])}
 
-    설명은 한국어로 작성해 주시고, 다음 내용을 포함해야 합니다:
+    설명에는 다음 내용을 포함해주세요:
     1. 플레이리스트의 주제와 목적
-    2. 선택된 성경 구절의 의미와 플레이리스트와의 연관성
-    3. 추천된 노래들이 어떻게 주제와 연결되는지
-    4. 청취자들에게 이 플레이리스트가 어떤 영감을 줄 수 있는지
+    2. 선택된 성경 구절의 의미 및 플레이리스트와의 연관성
+    3. 추천된 노래들이 주제와 어떻게 연결되는지
+    4. 청취자들에게 주는 영감
 
-    설명은 충분한 정보를 담고 있어야 하며, 영적이고 감동적인 톤으로 작성해 주세요.
-    설명은 300자 이내로 작성해주세요.
+    설명은 영적이고 감동적인 톤으로 작성해 주세요.
     """
 
     try:

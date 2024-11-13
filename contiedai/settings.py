@@ -25,19 +25,16 @@ SECRET_KEY = config('SECRET_KEY', default='your-default-secret-key')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = ['*']
-
-# 프로덕션 환경에서는 실제 허용할 도메인만 추가
-# ALLOWED_HOSTS = [
-#     "localhost",
-#     "127.0.0.1",
-#     "your-production-domain.com",
-#     # 필요한 다른 도메인 추가
-# ]
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "https://client-20h.pages.dev",
+    # 필요한 다른 도메인 추가
+]
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # Contied FE domain
-    "https://your-production-domain.com"    # 배포 시 실제 FE domain 추가
+    "https://client-20h.pages.dev"    # 배포 시 실제 FE domain 추가
 ]
 
 CORS_ALLOW_CREDENTIALS = True
