@@ -299,6 +299,7 @@ def generate_gpt4o_mini_conti_title(keywords, bible_verse_range, recommended_son
     - 추천 노래: {', '.join([song['title'] for _, song in recommended_songs.iterrows()])}
 
     플레이리스트의 주제와 내용을 잘 반영하면서도 흥미롭고 기억에 남는 제목을 만들어주세요. 부제는 필요 없으며, 따옴표나 기타 부가적인 텍스트 없이 순수한 제목만 반환해주세요.
+    제목에 쓰이는 '플레이리스트'는 모두 '콘티'라는 용어로 변환해주세요.
     """
 
     try:
@@ -336,6 +337,7 @@ def generate_gpt4o_mini_conti_description(keywords, bible_verse_range, recommend
     4. 청취자들에게 주는 영감
 
     설명은 영적이고 감동적인 톤으로 작성해 주세요.
+    설명에 쓰이는 '플레이리스트'는 모두 '콘티'라는 용어로 변환해주세요.
     """
 
     try:
