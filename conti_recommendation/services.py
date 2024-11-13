@@ -293,13 +293,13 @@ def recommend_songs(matched_songs, min_recommendations=4, max_recommendations=5)
 def generate_gpt4o_mini_conti_title(keywords, bible_verse_range, recommended_songs):
     prompt = f"""
     다음 정보를 참고하여 창의적이고 매력적인 한국어 플레이리스트 제목을 작성해주세요.
+    제목에 쓰이는 '플레이리스트'라는 단어는 모두 '콘티'라는 단어로 변환해주세요.
 
     - 키워드: {', '.join(keywords)}
     - 성경 구절 범위: {bible_verse_range}
     - 추천 노래: {', '.join([song['title'] for _, song in recommended_songs.iterrows()])}
 
     플레이리스트의 주제와 내용을 잘 반영하면서도 흥미롭고 기억에 남는 제목을 만들어주세요. 부제는 필요 없으며, 따옴표나 기타 부가적인 텍스트 없이 순수한 제목만 반환해주세요.
-    제목에 쓰이는 '플레이리스트'는 모두 '콘티'라는 용어로 변환해주세요.
     """
 
     try:
@@ -323,6 +323,7 @@ def generate_gpt4o_mini_conti_title(keywords, bible_verse_range, recommended_son
 def generate_gpt4o_mini_conti_description(keywords, bible_verse_range, recommended_songs, bible_text, conti_title):
     prompt = f"""
     다음 정보를 참고하여 300자 이내의 한국어 플레이리스트 설명을 작성해주세요.
+    설명에 쓰이는 '플레이리스트'라는 단어는 모두 '콘티'라는 단어로 변환해주세요.
 
     - 플레이리스트 제목: {conti_title}
     - 키워드: {', '.join(keywords)}
@@ -337,7 +338,6 @@ def generate_gpt4o_mini_conti_description(keywords, bible_verse_range, recommend
     4. 청취자들에게 주는 영감
 
     설명은 영적이고 감동적인 톤으로 작성해 주세요.
-    설명에 쓰이는 '플레이리스트'는 모두 '콘티'라는 용어로 변환해주세요.
     """
 
     try:
