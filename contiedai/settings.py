@@ -26,6 +26,7 @@ SECRET_KEY = config('SECRET_KEY', default='your-default-secret-key')
 DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = [
+    'port-0-contied-ai-m3dbshlb618cb54b.sel4.cloudtype.app',
     "localhost",
     "127.0.0.1",
     "https://client-20h.pages.dev",
