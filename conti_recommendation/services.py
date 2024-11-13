@@ -293,7 +293,7 @@ def recommend_songs(matched_songs, min_recommendations=4, max_recommendations=5)
 def generate_gpt4o_mini_conti_title(keywords, bible_verse_range, recommended_songs):
     prompt = f"""
     다음 정보를 참고하여 창의적이고 매력적인 한국어 플레이리스트 제목을 작성해주세요.
-    제목에 쓰이는 '플레이리스트'라는 단어는 모두 '콘티'라는 단어로 변환해주세요.
+    이 제목에서 '플레이리스트'라는 단어를 사용하지 않고, '콘티'라는 단어만 사용해 작성해 주세요.
 
     - 키워드: {', '.join(keywords)}
     - 성경 구절 범위: {bible_verse_range}
@@ -323,7 +323,7 @@ def generate_gpt4o_mini_conti_title(keywords, bible_verse_range, recommended_son
 def generate_gpt4o_mini_conti_description(keywords, bible_verse_range, recommended_songs, bible_text, conti_title):
     prompt = f"""
     다음 정보를 참고하여 300자 이내의 한국어 플레이리스트 설명을 작성해주세요.
-    설명에 쓰이는 '플레이리스트'라는 단어는 모두 '콘티'라는 단어로 변환해주세요.
+    이 설명에서 '플레이리스트'라는 단어를 사용하지 않고, '콘티'라는 단어만 사용해 작성해 주세요.
 
     - 플레이리스트 제목: {conti_title}
     - 키워드: {', '.join(keywords)}
