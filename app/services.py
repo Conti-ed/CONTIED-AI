@@ -79,39 +79,51 @@ def load_bible(file_name='bible.txt') -> Optional[Dict[str, str]]:
     return None
 
 async def get_embedding_async(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> np.ndarray:
-    """텍스트를 3072차원 임베딩 벡터로 변환합니다 (비동기 수행)."""
+    """텍스트를 3072차원 임베딩 벡터로 변환합니다. (429 에러 발생 시 재시도 포함)"""
     if not text or not text.strip():
         return np.zeros(DIMENSION)
         
-    try:
-        response = await client.aio.models.embed_content(
-            model=EMBEDDING_MODEL,
-            contents=text,
-            config={
-                'task_type': task_type,
-                'title': "Song embedding" if task_type == "RETRIEVAL_DOCUMENT" else None
-            }
-        )
-        
-        # 임베딩 데이터가 리스트로 올 경우 처리
-        if hasattr(response, 'embeddings') and len(response.embeddings) > 0:
-            all_values = [np.array(e.values) for e in response.embeddings]
-            final_emb = np.mean(all_values, axis=0) if len(all_values) > 1 else all_values[0]
-        else:
-            final_emb = np.array(response.embeddings[0].values)
+    max_retries = 5
+    base_delay = 5 # 초
+    
+    for attempt in range(max_retries):
+        try:
+            response = await client.aio.models.embed_content(
+                model=EMBEDDING_MODEL,
+                contents=text,
+                config={
+                    'task_type': task_type,
+                    'title': "Song embedding" if task_type == "RETRIEVAL_DOCUMENT" else None
+                }
+            )
             
-        # 차원이 정확한지 검증 및 보정
-        if final_emb.shape[0] != DIMENSION:
-            logger.warning(f"경고: 임베딩 차원 불일치 ({final_emb.shape[0]} != {DIMENSION}). 보정하는 중...")
-            if final_emb.shape[0] > DIMENSION:
-                final_emb = final_emb[:DIMENSION]
+            # 임베딩 데이터가 리스트로 올 경우 처리
+            if hasattr(response, 'embeddings') and len(response.embeddings) > 0:
+                all_values = [np.array(e.values) for e in response.embeddings]
+                final_emb = np.mean(all_values, axis=0) if len(all_values) > 1 else all_values[0]
             else:
-                final_emb = np.pad(final_emb, (0, DIMENSION - final_emb.shape[0]))
+                final_emb = np.array(response.embeddings[0].values)
                 
-        return final_emb
-    except Exception as e:
-        logger.error(f"임베딩 생성 오류: {e}")
-        return np.zeros(DIMENSION)
+            # 차원이 정확한지 검증 및 보정
+            if final_emb.shape[0] != DIMENSION:
+                if final_emb.shape[0] > DIMENSION:
+                    final_emb = final_emb[:DIMENSION]
+                else:
+                    final_emb = np.pad(final_emb, (0, DIMENSION - final_emb.shape[0]))
+                    
+            return final_emb
+            
+        except Exception as e:
+            if "429" in str(e) and attempt < max_retries - 1:
+                delay = base_delay * (attempt + 1)
+                logger.warning(f"할당량 초과(429). {delay}초 후 다시 시도합니다... (시도 {attempt + 1}/{max_retries})")
+                await asyncio.sleep(delay)
+                continue
+            
+            logger.error(f"임베딩 생성 최종 오류 (시도 {attempt + 1}): {e}")
+            return np.zeros(DIMENSION)
+            
+    return np.zeros(DIMENSION)
 
 async def compute_song_embeddings():
     """모든 곡 가사를 임베딩하여 캐시 파일로 저장하거나 로드합니다."""
@@ -131,15 +143,17 @@ async def compute_song_embeddings():
 
     logger.info(f"전체 찬양({len(songs_df)}곡)의 임베딩을 계산합니다. 이 작업은 처음에만 한 차례 수행됩니다.")
     
-    # API 요청 제한을 조절하기 위한 세마포어 (동시 5개 요청)
-    semaphore = asyncio.Semaphore(5)
+    # API 요청 제한을 조절하기 위한 세마포어 (무료 티어는 동시 요청을 최소화)
+    semaphore = asyncio.Semaphore(2)
 
     async def get_song_emb(idx, row):
         async with semaphore:
             # 제목, 아티스트, 가사를 조합하여 문맥 제공
             combined_text = f"{row.get('title', '')} {row.get('artist', '')} {row.get('lyrics', '')[:500]}"
             emb = await get_embedding_async(combined_text)
-            if (idx + 1) % 50 == 0:
+            # 요청 간 약간의 지연 시간 추가 (TPM 제한 방어)
+            await asyncio.sleep(0.5) 
+            if (idx + 1) % 10 == 0:
                 logger.info(f"진행 상황: 총 {len(songs_df)}곡 중 {idx + 1}곡 처리 완료...")
             return emb
 

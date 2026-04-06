@@ -15,8 +15,6 @@ __pycache__/
 .pytest_cache/
 
 # 프로젝트 특화 캐시 및 데이터
-app/cache/
-*.npy
 *.log
 
 # OS 관련
