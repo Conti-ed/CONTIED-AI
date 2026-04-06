@@ -16,7 +16,6 @@ __pycache__/
 
 # 프로젝트 특화 캐시 및 데이터
 app/cache/
-app/data/
 *.npy
 *.log
 
