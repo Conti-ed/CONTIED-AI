@@ -203,14 +203,18 @@ async def extract_search_intent(user_keywords: List[str], bible_text: str) -> st
         logger.error(f"검색 의도 파악 오류: {e}")
         return ' '.join(user_keywords)
 
-async def create_recommendation(keywords: List[str], bible_range: str) -> Dict[str, Any]:
+async def create_recommendation(keywords: List[str], bible_range: Optional[str]) -> Dict[str, Any]:
     """추천 생성의 메인 파이프라인 (추출 -> 임베딩 -> 유사도 -> 생성)"""
     try:
         # 성경 구절 파싱 및 추출
-        bible_range = bible_range.replace(" ", "")
-        if '~' not in bible_range: bible_range = f"{bible_range}~{bible_range}"
-        start_v, end_v = bible_range.split('~')
-        bible_text = get_bible_verses(start_v, end_v)
+        bible_text = ""
+        if bible_range and bible_range.strip():
+            bible_range = bible_range.replace(" ", "")
+            if '~' not in bible_range: bible_range = f"{bible_range}~{bible_range}"
+            start_v, end_v = bible_range.split('~')
+            bible_text = get_bible_verses(start_v, end_v)
+        else:
+            bible_range = ""
         
         # 1. AI를 활용한 정교한 검색 쿼리(의도) 생성
         search_query = await extract_search_intent(keywords, bible_text)
@@ -244,19 +248,54 @@ async def create_recommendation(keywords: List[str], bible_range: str) -> Dict[s
 async def generate_title(keywords: List[str], bible_range: str, songs: pd.DataFrame) -> str:
     """플레이리스트(콘티)의 제목을 생성합니다."""
     song_titles = ', '.join([str(s['title']) for _, s in songs.iterrows()])
-    prompt = f"곡 목록: {song_titles}\n관련 말씀: {bible_range}\n감동적인 예배 찬양 '콘티' 제목을 딱 한 줄로 생성해 주세요."
+    prompt = f"""당신은 예배 찬양 콘티의 제목을 짓는 전문가입니다.
+
+곡 목록: {song_titles}
+관련 말씀: {bible_range}
+키워드: {', '.join(keywords)}
+
+아래 규칙을 반드시 지켜주세요:
+1. 반드시 15자 이내의 한국어 제목을 생성하세요.
+2. 대괄호([]), 별표(**), 따옴표 등 특수기호를 절대 사용하지 마세요.
+3. '콘티 제목' 같은 메타 표현을 넣지 마세요.
+4. 핵심 주제와 감동을 담은 짧고 임팩트 있는 제목만 출력하세요.
+5. 부연 설명 없이 제목만 딱 한 줄 출력하세요.
+
+예시: 주님께 나아가는 길, 은혜의 강물, 감사로 열리는 문"""
     try:
         response = await client.aio.models.generate_content(model=REASONER_MODEL, contents=prompt)
-        return response.text.strip()
+        title = response.text.strip()
+        # 후처리: 혹시 남아있을 수 있는 특수문자 제거
+        title = title.replace('**', '').replace('[', '').replace(']', '').replace('"', '').replace("'", '')
+        # 15자 초과 시 자르기
+        if len(title) > 15:
+            title = title[:15]
+        return title
     except: return "새로운 예배 콘티"
 
 async def generate_description(keywords: List[str], bible_range: str, songs: pd.DataFrame, bible_text: str, title: str) -> str:
     """콘티에 대한 영적인 신앙 고백과 설명을 생성합니다."""
     song_titles = ', '.join([str(s['title']) for _, s in songs.iterrows()])
-    prompt = f"콘티 제목: {title}\n곡 목록: {song_titles}\n말씀 요약: {bible_text[:200]}\n이 리스트에 대한 신앙적인 설명과 묵상을 한국어로 짧게 써주세요 (최대 200자)."
+    prompt = f"""당신은 예배 인도자를 위한 콘티 설명을 작성하는 전문가입니다.
+
+콘티 제목: {title}
+곡 목록: {song_titles}
+말씀 요약: {bible_text[:200]}
+키워드: {', '.join(keywords)}
+
+아래 규칙을 반드시 지켜주세요:
+1. 총 150자 이내로 작성하세요.
+2. 반드시 2~3개의 짧은 문단으로 나누어 작성하세요.
+3. 각 문단 사이에 빈 줄(줄바꿈 2번(\n\n))을 넣으세요.
+4. 별표(**), 대괄호([]) 등 마크다운 문법을 절대 사용하지 마세요.
+5. 따뜻하고 은혜로운 어조로 신앙적인 묵상을 작성하세요.
+6. 첫 문단은 콘티의 핵심 메시지, 두 번째 문단은 예배자에게 전하는 격려를 담아주세요."""
     try:
         response = await client.aio.models.generate_content(model=REASONER_MODEL, contents=prompt)
-        return response.text.strip()
+        desc = response.text.strip()
+        # 마크다운 잔재 제거
+        desc = desc.replace('**', '').replace('[', '').replace(']', '')
+        return desc
     except: return "성경 구절과 주제에 알맞은 맞춤형 추천 결과입니다."
 
 async def initialize():
