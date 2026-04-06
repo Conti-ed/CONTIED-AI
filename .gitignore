@@ -1,10 +1,25 @@
+# 가상 환경 (Virtual Environment)
+.venv/
+env/
 venv/
-*.pyc
+ENV/
+
+# 환경 변수 (Security)
+.env
+.env.local
+
+# Python 캐시
 __pycache__/
 *.py[cod]
-.Python
+*$py.class
+.pytest_cache/
 
-db.sqlite3.env
-.env
+# 프로젝트 특화 캐시 및 데이터
+app/cache/
+app/data/
+*.npy
 *.log
-*.sqlite3
+
+# OS 관련
+.DS_Store
+Thumbs.db
