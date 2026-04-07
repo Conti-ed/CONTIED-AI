@@ -279,38 +279,46 @@ async def generate_title(keywords: List[str], bible_range: str, songs: pd.DataFr
     try:
         response = await client.aio.models.generate_content(model=REASONER_MODEL, contents=prompt)
         title = response.text.strip()
-        # 후처리: 혹시 남아있을 수 있는 특수문자 제거
-        title = title.replace('**', '').replace('[', '').replace(']', '').replace('"', '').replace("'", '')
-        # 15자 초과 시 자르기
+        # 후처리: 특수문자 및 불필요한 수식어 제거
+        title = re.sub(r'[*\[\]"\'\.]', '', title)
         if len(title) > 15:
             title = title[:15]
         return title
-    except: return "새로운 예배 콘티"
+    except Exception as e:
+        logger.error(f"제목 생성 중 오류 발생: {e}")
+        return "새로운 예배 콘티"
 
 async def generate_description(keywords: List[str], bible_range: str, songs: pd.DataFrame, bible_text: str, title: str) -> str:
     """콘티에 대한 영적인 신앙 고백과 설명을 생성합니다."""
     song_titles = ', '.join([str(s['title']) for _, s in songs.iterrows()])
-    prompt = f"""당신은 예배 인도자를 위한 콘티 설명을 작성하는 전문가입니다.
+    prompt = f"""당신은 예배 인도자를 위한 콘티 설명을 작성하는 영성 깊은 전문가입니다.
 
 콘티 제목: {title}
 곡 목록: {song_titles}
-말씀 요약: {bible_text[:200]}
+말씀 구절: {bible_range} ({bible_text[:300]})
 키워드: {', '.join(keywords)}
 
-아래 규칙을 반드시 지켜주세요:
-1. 총 150자 이내로 작성하세요.
-2. 반드시 2~3개의 짧은 문단으로 나누어 작성하세요.
-3. 각 문단 사이에 빈 줄(줄바꿈 2번(\n\n))을 넣으세요.
-4. 별표(**), 대괄호([]) 등 마크다운 문법을 절대 사용하지 마세요.
-5. 따뜻하고 은혜로운 어조로 신앙적인 묵상을 작성하세요.
-6. 첫 문단은 콘티의 핵심 메시지, 두 번째 문단은 예배자에게 전하는 격려를 담아주세요."""
+아래 지침에 따라 영감 넘치는 설명을 한국어로 작성하세요:
+1. 전체 200자 이내로, 2개의 문단으로 구성하세요.
+2. 첫 문단은 이 콘티가 전하고자 하는 핵심 영적 메시지를 '우리는 ~합니다' 또는 '~하는 예배가 되길 원합니다'와 같은 고백체로 작성하세요.
+3. 두 번째 문단은 선곡된 찬양들과 말씀의 조화를 언급하며 예배자들에게 소망과 위로를 주는 메시지를 담아주세요.
+4. 문단 사이에는 반드시 빈 줄(\n\n)을 하나 넣으세요.
+5. 별표(*), 대괄호([]), 숫자 리스트 등 마크다운 형식을 절대 사용하지 마세요. 오직 텍스트만 출력하세요.
+6. 따뜻하고 깊은 묵상이 느껴지는 어조를 사용하세요.
+7. '콘티 설명' 같은 제목이나 머리말은 생략하고 본문만 출력하세요."""
+
     try:
         response = await client.aio.models.generate_content(model=REASONER_MODEL, contents=prompt)
+        if not response.text:
+            raise ValueError("AI 응답이 비어있습니다.")
+            
         desc = response.text.strip()
-        # 마크다운 잔재 제거
-        desc = desc.replace('**', '').replace('[', '').replace(']', '')
+        # 마크다운 및 불필요한 기호 완벽 제거
+        desc = re.sub(r'[*\[\]#]', '', desc)
         return desc
-    except: return "성경 구절과 주제에 알맞은 맞춤형 추천 결과입니다."
+    except Exception as e:
+        logger.exception(f"콘티 설명 생성 실패 (Fallback 적용): {e}")
+        return f"'{title}' 주제를 바탕으로 구성된 맞춤형 예배 콘티입니다. 선별된 찬양들을 통해 하나님의 풍성한 은혜를 누리는 시간이 되시길 소망합니다."
 
 async def initialize():
     """애플리케이션 시작 시 데이터와 임베딩을 준비합니다."""
