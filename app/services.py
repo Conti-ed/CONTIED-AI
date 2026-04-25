@@ -224,6 +224,59 @@ async def extract_search_intent(user_keywords: List[str], bible_text: str) -> st
         logger.error(f"검색 의도 파악 오류: {e}")
         return ' '.join(user_keywords)
 
+def _parse_title_description(
+    raw_text: str,
+    fallback_title: str,
+    fallback_desc: str,
+) -> Tuple[str, str, str]:
+    """
+    AI 응답 텍스트에서 (title, description, parse_method) 를 추출.
+    parse_method 값: "json" | "line" | "fallback"
+    실패 시 (fallback_title, fallback_desc, "fallback") 반환.
+    """
+    if not raw_text:
+        return fallback_title, fallback_desc, "fallback"
+
+    text = raw_text.strip()
+    # 코드펜스 제거
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text).strip()
+
+    # 1단계: JSON 객체 추출
+    json_match = re.search(
+        r"\{[^{}]*\"title\"[^{}]*\"description\"[^{}]*\}|\{.*?\"title\".*?\"description\".*?\}",
+        text,
+        re.DOTALL,
+    )
+    if json_match:
+        try:
+            data = json.loads(json_match.group(0))
+            t = str(data.get("title", "")).strip()
+            d = str(data.get("description", "")).strip()
+            if t and d:
+                return t, d, "json"
+        except Exception:
+            pass
+
+    # 2단계: 줄 단위 패턴 — "제목: ..." / "설명: ..." 또는 "Title: ..." 등
+    title_match = re.search(r"(?:제목|title)\s*[:：]\s*(.+?)(?:\n|$)", text, re.IGNORECASE)
+    desc_match = re.search(
+        r"(?:설명|description)\s*[:：]\s*(.+?)(?:\n\n|\Z)", text, re.IGNORECASE | re.DOTALL
+    )
+    if title_match and desc_match:
+        return title_match.group(1).strip(), desc_match.group(1).strip(), "line"
+
+    # 3단계: 첫 줄을 제목으로, 나머지를 설명으로 (최후 시도)
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+    if len(lines) >= 2:
+        candidate_title = lines[0][:50]
+        candidate_desc = "\n".join(lines[1:])
+        if candidate_title and candidate_desc:
+            return candidate_title, candidate_desc, "line"
+
+    return fallback_title, fallback_desc, "fallback"
+
+
 def _description_mentions_real_songs(
     description: str,
     song_titles: List[str],
@@ -319,7 +372,9 @@ async def generate_title_and_description(
 
 위 예시와 같은 구조와 어조로, 아래 실제 입력을 사용하여 작성하세요.
 
-반드시 JSON 형식으로 응답: {{"title":"...","description":"..."}}"""
+[중요] 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트(인사말, 설명, 마크다운 펜스 등)는 절대 포함하지 마세요.
+
+{{"title": "여기에 15자 이내 제목", "description": "여기에 250자 이내 설명, 두 문단을 \\n\\n 으로 구분"}}"""
 
     # fallback 기본값
     fallback_title = "새로운 예배 콘티"
@@ -330,29 +385,34 @@ async def generate_title_and_description(
 
     # 일부 모델(특히 preview/lite)은 strict structured output을 거부할 수 있어
     # response_mime_type 옵션 없이 프롬프트 지시 + 방어적 파싱으로 호환성 확보.
-    response_text: str = ""
     try:
         response = await client.aio.models.generate_content(
             model=REASONER_MODEL,
             contents=prompt,
         )
-
         response_text = (response.text or "").strip()
+        logger.info(
+            f"AI 응답 수신 | model={REASONER_MODEL} | length={len(response_text)} | "
+            f"head={response_text[:120]!r}"
+        )
+
         if not response_text:
             raise ValueError("AI 응답이 비어있습니다.")
 
-        # 1) 코드 펜스 제거 (```json ... ``` 형태로 올 수 있음)
-        cleaned = re.sub(r"^```(?:json)?\s*", "", response_text)
-        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+        raw_title, raw_desc, parse_method = _parse_title_description(
+            response_text, fallback_title, fallback_desc
+        )
+        logger.info(
+            f"파싱 결과: method={parse_method}, title_len={len(raw_title)}, desc_len={len(raw_desc)}"
+        )
 
-        # 2) JSON 객체만 추출 (전후 잡담 방어)
-        json_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-        if not json_match:
-            raise ValueError(f"응답에서 JSON 객체를 찾지 못했습니다. 원문: {response_text[:200]}")
-
-        data = json.loads(json_match.group(0))
-        raw_title: str = str(data.get('title', fallback_title)).strip()
-        raw_desc: str = str(data.get('description', fallback_desc)).strip()
+        if parse_method == "fallback":
+            # 헬퍼가 fallback을 반환했지만 logger.error로 명시
+            logger.error(
+                f"제목/설명 파싱 실패 → Fallback 사용 | model={REASONER_MODEL} | "
+                f"response_snippet={response_text[:300]!r}"
+            )
+            return {"title": fallback_title, "description": fallback_desc}
 
         # 안전망 후처리: 특수문자 제거, 제목 길이 슬라이스
         title = re.sub(r'[*\[\]"\'\.]', '', raw_title)
@@ -361,7 +421,6 @@ async def generate_title_and_description(
 
         desc = re.sub(r'[*\[\]#]', '', raw_desc)
 
-        # 빈 결과 방어
         if not title:
             title = fallback_title
         if not desc:
@@ -370,10 +429,9 @@ async def generate_title_and_description(
         return {"title": title, "description": desc}
 
     except Exception as e:
-        # Fallback 로그에 응답 본문 일부 포함 — 향후 디버깅에 결정적
-        snippet = response_text[:300] if response_text else "(empty)"
         logger.error(
-            f"제목/설명 생성 실패 → Fallback 적용 | model={REASONER_MODEL} | err={e!r} | response_snippet={snippet!r}"
+            f"제목/설명 생성 호출 실패 → Fallback 사용 | model={REASONER_MODEL} | "
+            f"err={e!r}"
         )
         return {"title": fallback_title, "description": fallback_desc}
 
