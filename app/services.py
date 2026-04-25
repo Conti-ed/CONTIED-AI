@@ -328,29 +328,31 @@ async def generate_title_and_description(
         "선별된 찬양들을 통해 하나님의 풍성한 은혜를 누리는 시간이 되시길 소망합니다."
     )
 
+    # 일부 모델(특히 preview/lite)은 strict structured output을 거부할 수 있어
+    # response_mime_type 옵션 없이 프롬프트 지시 + 방어적 파싱으로 호환성 확보.
+    response_text: str = ""
     try:
         response = await client.aio.models.generate_content(
             model=REASONER_MODEL,
             contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type='application/json',
-                response_schema={
-                    'type': 'object',
-                    'properties': {
-                        'title': {'type': 'string'},
-                        'description': {'type': 'string'},
-                    },
-                    'required': ['title', 'description'],
-                },
-            ),
         )
 
-        if not response.text:
+        response_text = (response.text or "").strip()
+        if not response_text:
             raise ValueError("AI 응답이 비어있습니다.")
 
-        data = json.loads(response.text)
-        raw_title: str = data.get('title', fallback_title).strip()
-        raw_desc: str = data.get('description', fallback_desc).strip()
+        # 1) 코드 펜스 제거 (```json ... ``` 형태로 올 수 있음)
+        cleaned = re.sub(r"^```(?:json)?\s*", "", response_text)
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+
+        # 2) JSON 객체만 추출 (전후 잡담 방어)
+        json_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if not json_match:
+            raise ValueError(f"응답에서 JSON 객체를 찾지 못했습니다. 원문: {response_text[:200]}")
+
+        data = json.loads(json_match.group(0))
+        raw_title: str = str(data.get('title', fallback_title)).strip()
+        raw_desc: str = str(data.get('description', fallback_desc)).strip()
 
         # 안전망 후처리: 특수문자 제거, 제목 길이 슬라이스
         title = re.sub(r'[*\[\]"\'\.]', '', raw_title)
@@ -359,10 +361,20 @@ async def generate_title_and_description(
 
         desc = re.sub(r'[*\[\]#]', '', raw_desc)
 
+        # 빈 결과 방어
+        if not title:
+            title = fallback_title
+        if not desc:
+            desc = fallback_desc
+
         return {"title": title, "description": desc}
 
     except Exception as e:
-        logger.exception(f"제목/설명 생성 실패 (Fallback 적용): {e}")
+        # Fallback 로그에 응답 본문 일부 포함 — 향후 디버깅에 결정적
+        snippet = response_text[:300] if response_text else "(empty)"
+        logger.error(
+            f"제목/설명 생성 실패 → Fallback 적용 | model={REASONER_MODEL} | err={e!r} | response_snippet={snippet!r}"
+        )
         return {"title": fallback_title, "description": fallback_desc}
 
 async def create_recommendation(
