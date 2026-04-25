@@ -25,8 +25,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 SONG_EMBEDDINGS_FILE = os.path.join(CACHE_DIR, 'song_embeddings.npy')
 
 # Gemini 모델 설정
-# TODO: 사용 환경에서 gemini-2.5-flash 또는 gemini-2.0-flash 가용 시 해당 모델로 변경 권장
-REASONER_MODEL = 'gemini-2.0-flash'
+REASONER_MODEL = 'gemini-3.1-flash-lite-preview'
 EMBEDDING_MODEL = 'gemini-embedding-001'
 DIMENSION = 3072  # 임베딩 벡터의 출력 차원
 
