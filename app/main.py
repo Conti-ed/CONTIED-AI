@@ -59,7 +59,8 @@ async def create_conti(request: ContiRequest):
     try:
         result = await services.create_recommendation(
             keywords=request.keywords,
-            bible_range=request.bible_verse_range
+            bible_range=request.bible_verse_range,
+            seed=request.seed,
         )
         
         if "error" in result:
