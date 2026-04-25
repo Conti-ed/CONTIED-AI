@@ -356,20 +356,20 @@ async def generate_title_and_description(
 
 [설명 규칙]
 1. 250자 이내 한국어 2개 문단 (\\n\\n 으로 구분)
-2. **첫 문단의 첫 단어는 반드시 "우리는" 으로 시작**할 것 — 예: "우리는 ~을 고백합니다", "우리는 ~을 갈망합니다"
-   "이 콘티는", "콘티는", "이번 예배는" 같은 시작어는 절대 금지
+2. **첫 문단의 첫 단어는 반드시 "이 콘티는" 으로 시작**할 것 — 콘티 자체를 객관적으로 소개하는 톤. 예: "이 콘티는 ~을 노래합니다", "이 콘티는 ~을 묵상하게 합니다"
+   "우리는", "콘티는", "이번 예배는" 같은 다른 시작어는 사용하지 마세요
 3. 두 번째 문단: 선택된 찬양들 중 1-2곡을 구체적으로 언급하며 본문과 어떻게 연결되는지 한 문장 포함
 4. 마크다운(*, [], #, 숫자 리스트) 절대 금지
-5. 따뜻하고 깊은 묵상이 느껴지는 어조
+5. 따뜻하고 깊은 묵상이 느껴지면서도, 콘티를 소개하는 차분한 안내체
 
 [참고 예시]
 입력 키워드: 회복, 새벽
 성경: 시편 30:5
 선택된 곡: "주의 인자하심", "새벽 이슬같은 주의 청년들이"
 출력 예시 description:
-"우리는 슬픔이 밤새 머물지라도 새벽이면 기쁨이 임하시는 주님의 신실하심을 고백합니다. 어떤 어둠 속에서도 다시 시작하게 하시는 주의 인자하심을 의지합니다.
+"이 콘티는 슬픔이 밤새 머물지라도 새벽이면 기쁨이 임하시는 주님의 신실하심을 묵상합니다. 어떤 어둠 속에서도 다시 시작하게 하시는 주의 인자하심을 의지하도록 인도하는 시간입니다.
 
-찬양 '주의 인자하심'과 '새벽 이슬같은 주의 청년들이'는 시편 30편의 회복의 약속을 노래합니다. 오늘 예배가 다시 일어서는 결단의 자리가 되기를 소망합니다."
+찬양 '주의 인자하심'과 '새벽 이슬같은 주의 청년들이'는 시편 30편의 회복의 약속을 노래합니다. 이 곡들이 흘러가는 동안 예배자가 다시 일어서는 결단의 자리에 서기를 소망합니다."
 
 위 예시와 같은 구조와 어조로, 아래 실제 입력을 사용하여 작성하세요.
 
@@ -427,17 +427,16 @@ async def generate_title_and_description(
         if not desc:
             desc = fallback_desc
 
-        # "우리는" 시작 강제 — description 첫 문단이 다른 시작어이면 1회 재시도
-        def _starts_with_uri_neun(text: str) -> bool:
+        # "이 콘티는" 시작 강제 — description 첫 문단이 다른 시작어이면 1회 재시도
+        def _starts_with_this_conti(text: str) -> bool:
             if not text:
                 return False
             first = text.lstrip().lstrip("\"‘’“”'").lstrip()
-            return first.startswith("우리는")
+            return first.startswith("이 콘티는") or first.startswith("이콘티는")
 
-        if not _starts_with_uri_neun(desc):
-            logger.info(f"description 시작어 비정상 ('우리는' 아님) — 1회 재시도. 현재 시작: {desc[:30]!r}")
-            # 1회 재시도 — 같은 prompt + 추가 강조 한 줄
-            retry_prompt = prompt + "\n\n[재시도] 첫 단어는 반드시 '우리는' 으로 시작하세요."
+        if not _starts_with_this_conti(desc):
+            logger.info(f"description 시작어 비정상 ('이 콘티는' 아님) — 1회 재시도. 현재 시작: {desc[:30]!r}")
+            retry_prompt = prompt + "\n\n[재시도] 첫 단어는 반드시 '이 콘티는' 으로 시작하세요."
             try:
                 retry_response = await client.aio.models.generate_content(
                     model=REASONER_MODEL,
@@ -446,16 +445,16 @@ async def generate_title_and_description(
                 retry_text = (retry_response.text or "").strip()
                 if retry_text:
                     r_title, r_desc, r_method = _parse_title_description(retry_text, fallback_title, fallback_desc)
-                    if r_method != "fallback" and _starts_with_uri_neun(r_desc):
+                    if r_method != "fallback" and _starts_with_this_conti(r_desc):
                         title, desc = r_title, r_desc
-                        logger.info("재시도 성공 — '우리는' 시작 확보")
+                        logger.info("재시도 성공 — '이 콘티는' 시작 확보")
                     else:
                         # 재시도 실패 — 강제 prepend (last resort)
-                        # "이 콘티는", "콘티는", "이번 예배는" 등 알려진 시작어 제거 후 "우리는" 부여
-                        desc = re.sub(r"^(이\s*콘티는|콘티는|이번\s*예배는|이\s*시간은)\s*", "", desc).lstrip()
-                        if not desc.startswith("우리는"):
-                            desc = "우리는 " + desc
-                        logger.warning(f"재시도 후에도 시작어 비정상 — prepend 적용")
+                        # "우리는", "콘티는", "이번 예배는", "이 시간은" 등 알려진 시작어 제거 후 "이 콘티는" 부여
+                        desc = re.sub(r"^(우리는|콘티는|이번\s*예배는|이\s*시간은)\s*", "", desc).lstrip()
+                        if not desc.startswith("이 콘티는"):
+                            desc = "이 콘티는 " + desc
+                        logger.warning("재시도 후에도 시작어 비정상 — prepend 적용")
             except Exception as e:
                 logger.warning(f"description 재시도 실패: {e!r}")
 
