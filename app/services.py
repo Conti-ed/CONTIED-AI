@@ -356,7 +356,8 @@ async def generate_title_and_description(
 
 [설명 규칙]
 1. 250자 이내 한국어 2개 문단 (\\n\\n 으로 구분)
-2. 첫 문단: '우리는 ~합니다' 형태의 고백체로, 본문/키워드의 핵심 영적 메시지
+2. **첫 문단의 첫 단어는 반드시 "우리는" 으로 시작**할 것 — 예: "우리는 ~을 고백합니다", "우리는 ~을 갈망합니다"
+   "이 콘티는", "콘티는", "이번 예배는" 같은 시작어는 절대 금지
 3. 두 번째 문단: 선택된 찬양들 중 1-2곡을 구체적으로 언급하며 본문과 어떻게 연결되는지 한 문장 포함
 4. 마크다운(*, [], #, 숫자 리스트) 절대 금지
 5. 따뜻하고 깊은 묵상이 느껴지는 어조
@@ -425,6 +426,38 @@ async def generate_title_and_description(
             title = fallback_title
         if not desc:
             desc = fallback_desc
+
+        # "우리는" 시작 강제 — description 첫 문단이 다른 시작어이면 1회 재시도
+        def _starts_with_uri_neun(text: str) -> bool:
+            if not text:
+                return False
+            first = text.lstrip().lstrip("\"‘’“”'").lstrip()
+            return first.startswith("우리는")
+
+        if not _starts_with_uri_neun(desc):
+            logger.info(f"description 시작어 비정상 ('우리는' 아님) — 1회 재시도. 현재 시작: {desc[:30]!r}")
+            # 1회 재시도 — 같은 prompt + 추가 강조 한 줄
+            retry_prompt = prompt + "\n\n[재시도] 첫 단어는 반드시 '우리는' 으로 시작하세요."
+            try:
+                retry_response = await client.aio.models.generate_content(
+                    model=REASONER_MODEL,
+                    contents=retry_prompt,
+                )
+                retry_text = (retry_response.text or "").strip()
+                if retry_text:
+                    r_title, r_desc, r_method = _parse_title_description(retry_text, fallback_title, fallback_desc)
+                    if r_method != "fallback" and _starts_with_uri_neun(r_desc):
+                        title, desc = r_title, r_desc
+                        logger.info("재시도 성공 — '우리는' 시작 확보")
+                    else:
+                        # 재시도 실패 — 강제 prepend (last resort)
+                        # "이 콘티는", "콘티는", "이번 예배는" 등 알려진 시작어 제거 후 "우리는" 부여
+                        desc = re.sub(r"^(이\s*콘티는|콘티는|이번\s*예배는|이\s*시간은)\s*", "", desc).lstrip()
+                        if not desc.startswith("우리는"):
+                            desc = "우리는 " + desc
+                        logger.warning(f"재시도 후에도 시작어 비정상 — prepend 적용")
+            except Exception as e:
+                logger.warning(f"description 재시도 실패: {e!r}")
 
         return {"title": title, "description": desc}
 
