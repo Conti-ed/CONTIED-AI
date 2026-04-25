@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
+import difflib
 import pandas as pd
 import numpy as np
 import os
@@ -24,8 +25,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 SONG_EMBEDDINGS_FILE = os.path.join(CACHE_DIR, 'song_embeddings.npy')
 
 # Gemini 모델 설정
-# TODO: 사용 환경에서 gemini-2.5-flash 또는 gemini-2.0-flash 가용 시 해당 모델로 변경 권장
-REASONER_MODEL = 'gemini-2.0-flash'
+REASONER_MODEL = 'gemini-3.1-flash-lite-preview'
 EMBEDDING_MODEL = 'gemini-embedding-001'
 DIMENSION = 3072  # 임베딩 벡터의 출력 차원
 
@@ -224,6 +224,26 @@ async def extract_search_intent(user_keywords: List[str], bible_text: str) -> st
         logger.error(f"검색 의도 파악 오류: {e}")
         return ' '.join(user_keywords)
 
+def _description_mentions_real_songs(
+    description: str,
+    song_titles: List[str],
+    threshold: float = 0.6,
+) -> bool:
+    """description에 인용 부호로 감싼 곡명 후보가 등장할 때, 실제 곡명과 fuzzy match하는지 확인.
+    인용 없으면 True(통과), 인용이 있는데 실제 곡명과 너무 다르면 False 반환."""
+    candidates = re.findall(r'[\'"“‘]([^\'\"”’]{2,30})[\'"”’]', description)
+    if not candidates:
+        return True  # 인용 없으면 환각 위험 없음 — 통과
+    for cand in candidates:
+        best = max(
+            (difflib.SequenceMatcher(None, cand, t).ratio() for t in song_titles),
+            default=0.0,
+        )
+        if best < threshold:
+            return False
+    return True
+
+
 async def generate_title_and_description(
     keywords: List[str],
     bible_range: str,
@@ -274,7 +294,12 @@ async def generate_title_and_description(
 2. 특수기호([], **, "" 등) 절대 금지
 3. '콘티 제목' 같은 메타 표현 금지
 4. 핵심 주제와 감동을 담은 짧고 임팩트 있는 한 줄
-예시: 주님께 나아가는 길, 은혜의 강물, 감사로 열리는 문
+예시(다양한 톤 참고):
+  - 주님께 나아가는 길  (행위 + 대상)
+  - 은혜의 강물         (비유)
+  - 감사로 열리는 문    (행위 + 비유)
+  - 흔들리지 않는 반석  (영적 안정)
+  - 다시 일어서는 우리  (회복 주제)
 
 [설명 규칙]
 1. 250자 이내 한국어 2개 문단 (\\n\\n 으로 구분)
@@ -282,6 +307,17 @@ async def generate_title_and_description(
 3. 두 번째 문단: 선택된 찬양들 중 1-2곡을 구체적으로 언급하며 본문과 어떻게 연결되는지 한 문장 포함
 4. 마크다운(*, [], #, 숫자 리스트) 절대 금지
 5. 따뜻하고 깊은 묵상이 느껴지는 어조
+
+[참고 예시]
+입력 키워드: 회복, 새벽
+성경: 시편 30:5
+선택된 곡: "주의 인자하심", "새벽 이슬같은 주의 청년들이"
+출력 예시 description:
+"우리는 슬픔이 밤새 머물지라도 새벽이면 기쁨이 임하시는 주님의 신실하심을 고백합니다. 어떤 어둠 속에서도 다시 시작하게 하시는 주의 인자하심을 의지합니다.
+
+찬양 '주의 인자하심'과 '새벽 이슬같은 주의 청년들이'는 시편 30편의 회복의 약속을 노래합니다. 오늘 예배가 다시 일어서는 결단의 자리가 되기를 소망합니다."
+
+위 예시와 같은 구조와 어조로, 아래 실제 입력을 사용하여 작성하세요.
 
 반드시 JSON 형식으로 응답: {{"title":"...","description":"..."}}"""
 
@@ -292,29 +328,31 @@ async def generate_title_and_description(
         "선별된 찬양들을 통해 하나님의 풍성한 은혜를 누리는 시간이 되시길 소망합니다."
     )
 
+    # 일부 모델(특히 preview/lite)은 strict structured output을 거부할 수 있어
+    # response_mime_type 옵션 없이 프롬프트 지시 + 방어적 파싱으로 호환성 확보.
+    response_text: str = ""
     try:
         response = await client.aio.models.generate_content(
             model=REASONER_MODEL,
             contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type='application/json',
-                response_schema={
-                    'type': 'object',
-                    'properties': {
-                        'title': {'type': 'string'},
-                        'description': {'type': 'string'},
-                    },
-                    'required': ['title', 'description'],
-                },
-            ),
         )
 
-        if not response.text:
+        response_text = (response.text or "").strip()
+        if not response_text:
             raise ValueError("AI 응답이 비어있습니다.")
 
-        data = json.loads(response.text)
-        raw_title: str = data.get('title', fallback_title).strip()
-        raw_desc: str = data.get('description', fallback_desc).strip()
+        # 1) 코드 펜스 제거 (```json ... ``` 형태로 올 수 있음)
+        cleaned = re.sub(r"^```(?:json)?\s*", "", response_text)
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+
+        # 2) JSON 객체만 추출 (전후 잡담 방어)
+        json_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if not json_match:
+            raise ValueError(f"응답에서 JSON 객체를 찾지 못했습니다. 원문: {response_text[:200]}")
+
+        data = json.loads(json_match.group(0))
+        raw_title: str = str(data.get('title', fallback_title)).strip()
+        raw_desc: str = str(data.get('description', fallback_desc)).strip()
 
         # 안전망 후처리: 특수문자 제거, 제목 길이 슬라이스
         title = re.sub(r'[*\[\]"\'\.]', '', raw_title)
@@ -323,15 +361,32 @@ async def generate_title_and_description(
 
         desc = re.sub(r'[*\[\]#]', '', raw_desc)
 
+        # 빈 결과 방어
+        if not title:
+            title = fallback_title
+        if not desc:
+            desc = fallback_desc
+
         return {"title": title, "description": desc}
 
     except Exception as e:
-        logger.exception(f"제목/설명 생성 실패 (Fallback 적용): {e}")
+        # Fallback 로그에 응답 본문 일부 포함 — 향후 디버깅에 결정적
+        snippet = response_text[:300] if response_text else "(empty)"
+        logger.error(
+            f"제목/설명 생성 실패 → Fallback 적용 | model={REASONER_MODEL} | err={e!r} | response_snippet={snippet!r}"
+        )
         return {"title": fallback_title, "description": fallback_desc}
 
-async def create_recommendation(keywords: List[str], bible_range: Optional[str]) -> Dict[str, Any]:
+async def create_recommendation(
+    keywords: List[str],
+    bible_range: Optional[str],
+    seed: Optional[int] = None,
+) -> Dict[str, Any]:
     """추천 생성의 메인 파이프라인 (추출 -> 임베딩 -> 유사도 -> 생성)"""
     try:
+        if seed is not None:
+            logger.info(f"seed={seed} 적용 (재생성 모드)")
+
         # 성경 구절 파싱 및 추출
         bible_text = ""
         if bible_range and bible_range.strip():
@@ -355,8 +410,16 @@ async def create_recommendation(keywords: List[str], bible_range: Optional[str])
         similarities = cosine_similarity_manual(query_emb, song_embeddings)
         songs_df['similarity'] = similarities
 
-        # 4. 유사도 내림차순 정렬 후 결정론적 Top-5 선택 (랜덤 샘플링 제거)
-        recs = songs_df.sort_values('similarity', ascending=False).head(5)
+        # 4. 유사도 내림차순 정렬 후 Top-15 추출
+        matched = songs_df.sort_values('similarity', ascending=False).head(15)
+
+        if seed is not None:
+            # seed가 있으면 Top-15 안에서 셔플 후 5곡 선택 → "다시 생성" 시 다른 결과
+            rng = np.random.default_rng(seed)
+            shuffled_idx = rng.permutation(len(matched))[:5]
+            recs = matched.iloc[sorted(shuffled_idx)]  # 유사도 순서 보존
+        else:
+            recs = matched.head(5)  # 기본: 결정론적 Top-5
 
         # 5. AI를 이용한 제목 및 설명 한 번에 생성 (LLM 호출 1회)
         generated = await generate_title_and_description(
@@ -365,6 +428,22 @@ async def create_recommendation(keywords: List[str], bible_range: Optional[str])
             bible_text=bible_text,
             songs=recs,
         )
+
+        # 5-1. 출력 검증: description 내 인용 곡명이 실제 곡명과 너무 다르면 1회 재시도
+        song_titles = [str(s.get('title', '')) for s in recs.to_dict('records')]
+        if not _description_mentions_real_songs(generated["description"], song_titles):
+            logger.warning("설명에 환각 곡명 의심 — 1회 재시도")
+            retry = await generate_title_and_description(
+                keywords=keywords,
+                bible_range=bible_range,
+                bible_text=bible_text,
+                songs=recs,
+            )
+            if not _description_mentions_real_songs(retry["description"], song_titles):
+                logger.warning("재시도 후에도 환각 곡명 의심 — 원본 결과로 통과")
+            else:
+                generated = retry
+
         title = generated["title"]
         desc = generated["description"]
 

@@ -13,6 +13,12 @@ class ContiRequest(BaseModel):
         description="성경 구절 범위 (형식: 권장:절~권장:절)",
         examples=["창세기1:1~창세기1:10"]
     )
+    seed: Optional[int] = Field(
+        None,
+        description="\"다시 생성\" 시 후보 셔플 시드",
+        ge=0,
+        le=10_000_000,
+    )
 
 class SongItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
